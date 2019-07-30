@@ -1,0 +1,108 @@
+Step by Step Methods to Creat Kubernetes Cluster on AWS Environment 
+####################################################################
+    1.) Create Ubuntu EC2 instance of your choice 
+
+    2.) install AWSCLI on the Ubuntu Instance by running the following commands
+
+     curl https://s3.amazonaws.com/aws-cli/awscli-bundle.zip -o awscli-bundle.zip
+     apt install unzip python
+     unzip awscli-bundle.zip
+     #sudo apt-get install unzip - if you dont have unzip in your system
+     ./awscli-bundle/install -i /usr/local/aws -b /usr/local/bin/aws
+
+   3.) Install kubectl that will be used to manage your kubernetes with the following commands
+
+    curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl
+     chmod +x ./kubectl
+     sudo mv ./kubectl /usr/local/bin/kubectl
+
+   4.) You will need to create an IAM user/role with and grant the following Route53, EC2, IAM and S3 full access
+
+   5.)  Attach IAM role to ubuntu server by selecting your Ubuntu server from EC2 sections action setting then instance setting attach IAM roles
+    
+   6.) From the Ubuntu server configure AWS credentails - Note, because we are using IAM roles we dont need to add credentails but please select your region.
+    
+      aws configure
+
+   7.) Now you need to install kops on ubuntu instance and grant it execute permssion as shown below
+
+     curl -LO https://github.com/kubernetes/kops/releases/download/$(curl -s https://api.github.com/repos/kubernetes/kops/releases/latest | grep tag_name | cut -d '"' -f 4)/kops-linux-amd64
+     chmod +x kops-linux-amd64
+     sudo mv kops-linux-amd64 /usr/local/bin/kops
+
+   8.) You need to a public or private hosted zone on Route 53 in this case i will use private hosted zones
+   In my case i created a private hosted zone called llcenterprise.in which is also the name of my s3 bucket
+
+   9.) We need to create an S3 bucket where we can store all our kubernetes configuration
+
+     aws s3 mb s3://llcenterprise.in 
+
+   10.) Expose environment variable of the S3 bucket you created above
+
+     export KOPS_STATE_STORE=s3://llcenterprise.in 
+
+   11.) Create ssh keys pair without a passport
+
+     ssh-keygen
+
+   12.) Create kubernetes cluster definitions on S3 bucket
+
+     kops create cluster --cloud=aws --zones=sa-east-1a --name=llcenterprise.in  --dns-zone=llcenterprise.in --dns private
+
+   13.) Now we can create our kubernetes cluser.### Note, kops is use to manage kubernetes clusters. Once the cluster is created please wait for some
+     times before validing your cluster as those cluster are being created so you might get some error dont worry check in your EC2 console you will see those instances being created.
+      
+      kops update cluster llcenterprise.in --yes
+
+   14.) Once all your cluster instances are up you can validate your cluster
+
+     kops validate cluster
+
+   15) To see the list of nodes created
+
+      kubectl get nodes 
+
+   16.) To deploying Nginx container on Kubernetes and expose it to port 80 run the below command
+
+    Deploying Nginx Container
+
+    kubectl run --generator=run-pod/v1  llc-nginx --image=nginx --replicas=2 --port=80
+    kubectl get pods
+    kubectl get deployments
+
+    17.) You can now xxpose the deployment as service. What this will do is that it will create an ELB in front of those 2 containers and allow you to publicly access them:
+
+     kubectl expose deployment llc-nginx --port=80 --type=LoadBalancer
+     
+     ## Note, if the external IP is not coming you can add it manually using the following command.
+     kubectl expose deployment llc-nginx --type=LoadBalancer --port=80  --external-ip=172.20.40.80 
+     kubectl get services -o wide
+
+    18.) You can delete your cluster with this commands
+
+     kops delete cluster --name=llcenterprise.in  --state=s3://llcenterprise.in --yes
+    
+################ Other usefull commands ############
+kubectl get service -o wide
+kubectl get deployment;
+kubectl get svc;
+kubectl delete svc llc-nginx
+kubectl get replicasets
+kubectl describe replicaset
+kubectl get pods --output=wide
+#############################
+###### To stop your kubernetes cluster when you dont need it running anymore follow the below stops. ## Note, if you shutdown your instance from EC2 section the cluster will spin-up another one.
+export KOPS_STATE_STORE=s3://llcenterprise.in
+kops edit ig nodes $change minSize and maxSize to 0 
+kops get ig
+kops edit ig master-sa-east-1a
+kops update cluster --yes
+kops rolling-update cluster --yes (To stop the cluster)
+####### To Start your cluster after shutting down with the above procedure ########
+kops get clusters
+kubectl cluster-info
+kops export kubecfg  llcenterprise.in
+export KOPS_STATE_STORE=s3://llcenterprise.in 
+kops edit ig master-sa-east-1a
+kops rolling-update cluster --cloudonly --force --yes (to start the cluster)
+
